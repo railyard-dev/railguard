@@ -147,7 +147,7 @@ The agent can't turn Railyard off:
 
 ## Can you break it?
 
-We've run [3 rounds of red teaming](PENTEST-REPORT.md) and caught 28 attack vectors so far. Think you can find one we missed? Open an issue or PR with your bypass and we'll add a rule for it.
+Railyard gets stronger with every bypass found. New evasion patterns, new destructive commands, new attack vectors — they all become new rules. Think you can find one we missed? Open an issue or PR and we'll ship a fix.
 
 ---
 

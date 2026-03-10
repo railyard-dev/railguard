@@ -56,6 +56,7 @@ mod tests {
     fn test_policy() -> Policy {
         Policy {
             version: 1,
+            mode: "chill".to_string(),
             blocklist: vec![Rule {
                 name: "no-destroy".to_string(),
                 tool: "Bash".to_string(),

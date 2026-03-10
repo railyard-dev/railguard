@@ -186,6 +186,67 @@ fn detect_backtick_subshell(cmd: &str) -> Option<String> {
     }
 }
 
+/// Extract all file paths from a command, resolving variable assignments.
+/// This catches variable indirection like: d="$HOME/.ssh"; cat "$d/id_ed25519"
+pub fn extract_paths_from_command(cmd: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    // Step 1: Parse variable assignments (VAR="value" or VAR='value' or VAR=value)
+    let mut vars = std::collections::HashMap::new();
+    let assign_re = regex::Regex::new(r#"(\w+)=["']?([^"';\s&|]+)["']?"#).unwrap();
+    for caps in assign_re.captures_iter(cmd) {
+        if let (Some(name), Some(value)) = (caps.get(1), caps.get(2)) {
+            vars.insert(name.as_str().to_string(), value.as_str().to_string());
+        }
+    }
+
+    // Step 2: Expand $HOME from environment
+    if let Some(home) = dirs::home_dir() {
+        vars.insert("HOME".to_string(), home.display().to_string());
+    }
+
+    // Step 3: Expand variables in the command
+    let mut expanded_cmd = cmd.to_string();
+    // Expand ${VAR} and $VAR patterns
+    for (name, value) in &vars {
+        expanded_cmd = expanded_cmd.replace(&format!("${{{}}}", name), value);
+        expanded_cmd = expanded_cmd.replace(&format!("${}", name), value);
+    }
+
+    // Step 4: Extract all path-like tokens from the expanded command
+    let path_re = regex::Regex::new(r#"(?:^|\s|["'=])((?:/|~/|\.\./)[\w./_-]+)"#).unwrap();
+    for caps in path_re.captures_iter(&expanded_cmd) {
+        if let Some(path_match) = caps.get(1) {
+            let p = path_match.as_str().to_string();
+            if !is_benign_path(&p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    // Also extract from the original command (unexpanded)
+    for caps in path_re.captures_iter(cmd) {
+        if let Some(path_match) = caps.get(1) {
+            let p = path_match.as_str().to_string();
+            if !is_benign_path(&p) && !paths.contains(&p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    paths
+}
+
+/// Paths that should never trigger fence violations
+fn is_benign_path(path: &str) -> bool {
+    path == "/dev/null"
+        || path == "/dev/stdin"
+        || path == "/dev/stdout"
+        || path == "/dev/stderr"
+        || path == "/dev/tty"
+        || path.starts_with("/dev/fd/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -21,13 +21,21 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Install railyard hooks into Claude Code
-    Install,
+    Install {
+        /// Protection mode: "chill" (block destructive commands) or "hardcore" (full lockdown)
+        #[arg(long, default_value = "chill")]
+        mode: String,
+    },
 
     /// Remove railyard hooks from Claude Code
     Uninstall,
 
     /// Generate a starter railyard.yaml in the current directory
-    Init,
+    Init {
+        /// Protection mode: "chill" or "hardcore"
+        #[arg(long, default_value = "chill")]
+        mode: String,
+    },
 
     /// Internal: handle a hook event (reads JSON from stdin)
     Hook {
@@ -72,9 +80,9 @@ fn main() {
     let cli = Cli::parse();
 
     let exit_code = match cli.command {
-        Commands::Install => cmd_install(),
+        Commands::Install { mode } => cmd_install(&mode),
         Commands::Uninstall => cmd_uninstall(),
-        Commands::Init => cmd_init(),
+        Commands::Init { mode } => cmd_init(&mode),
         Commands::Hook { event } => hook::handler::run(&event),
         Commands::Log { session, count } => cmd_log(session, count),
         Commands::Rollback { id, session, file, steps } => cmd_rollback(id, session, file, steps),
@@ -85,17 +93,37 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn cmd_install() -> i32 {
+fn cmd_install(mode: &str) -> i32 {
+    let mode = if mode == "hardcore" { "hardcore" } else { "chill" };
+
     println!("{}", "railyard".bold());
     println!();
 
     match install::hooks::install_hooks() {
         Ok(msg) => {
-            println!("  {} {}", "✓".green().bold(), "Hooks registered with Claude Code");
+            let mode_label = if mode == "hardcore" {
+                "hardcore".red().bold().to_string()
+            } else {
+                "chill".green().bold().to_string()
+            };
+            let rule_count = if mode == "hardcore" {
+                policy::defaults::hardcore_blocklist().len()
+            } else {
+                policy::defaults::chill_blocklist().len()
+            };
+
+            println!("  {} Hooks registered with Claude Code", "✓".green().bold());
             println!("  {} {}", "✓".green().bold(), msg);
-            println!();
-            println!("  Run {} to generate a policy file.", "railyard init".cyan());
-            println!("  Or just start using Claude Code — default protections are active.");
+            println!("  {} Mode: {} ({} rules)", "✓".green().bold(), mode_label, rule_count);
+            if mode == "chill" {
+                println!();
+                println!("  Blocks destructive commands. No restrictions on file access or network.");
+                println!("  For full lockdown: {}", "railyard install --mode hardcore".cyan());
+            } else {
+                println!();
+                println!("  Full lockdown: path fencing, network policy, credential protection.");
+                println!("  For relaxed mode: {}", "railyard install --mode chill".cyan());
+            }
             0
         }
         Err(e) => {
@@ -118,17 +146,26 @@ fn cmd_uninstall() -> i32 {
     }
 }
 
-fn cmd_init() -> i32 {
+fn cmd_init(mode: &str) -> i32 {
     let policy_path = Path::new("railyard.yaml");
     if policy_path.exists() {
         eprintln!("  {} railyard.yaml already exists", "✗".red().bold());
         return 1;
     }
 
+    let mode = if mode == "hardcore" { "hardcore" } else { "chill" };
     let default_yaml = include_str!("../defaults/railyard.yaml");
-    match std::fs::write(policy_path, default_yaml) {
+    // Inject mode into the generated YAML
+    let yaml_with_mode = format!("mode: {}\n{}", mode, default_yaml);
+
+    match std::fs::write(policy_path, yaml_with_mode) {
         Ok(_) => {
-            println!("  {} Created railyard.yaml", "✓".green().bold());
+            let mode_label = if mode == "hardcore" {
+                "hardcore".red().bold().to_string()
+            } else {
+                "chill".green().bold().to_string()
+            };
+            println!("  {} Created railyard.yaml (mode: {})", "✓".green().bold(), mode_label);
             println!();
             println!("  Edit this file to customize your policy.");
             println!("  Run {} to configure interactively.", "railyard chat".cyan());
@@ -301,22 +338,28 @@ fn cmd_status() -> i32 {
     }
 
     let cwd = std::env::current_dir().unwrap_or_default();
+    let loaded_policy = policy::loader::load_policy_or_defaults(&cwd);
+    let mode_label = if loaded_policy.mode == "hardcore" {
+        "hardcore".red().bold().to_string()
+    } else {
+        "chill".green().bold().to_string()
+    };
+
     match policy::loader::find_policy_file(&cwd) {
         Some(path) => {
             println!("  {} Policy loaded: {}", "✓".green().bold(), path.display());
-            if let Ok(policy) = policy::loader::load_policy(&path) {
-                println!("       {} blocklist rules", policy.blocklist.len());
-                println!("       {} approve rules", policy.approve.len());
-                println!("       {} allowlist rules", policy.allowlist.len());
-                println!("       fence: {}", if policy.fence.enabled { "on" } else { "off" });
-                println!("       trace: {}", if policy.trace.enabled { "on" } else { "off" });
-                println!("       snapshot: {}", if policy.snapshot.enabled { "on" } else { "off" });
-            }
+            println!("       mode: {}", mode_label);
+            println!("       {} blocklist rules", loaded_policy.blocklist.len());
+            println!("       {} approve rules", loaded_policy.approve.len());
+            println!("       {} allowlist rules", loaded_policy.allowlist.len());
+            println!("       fence: {}", if loaded_policy.fence.enabled { "on" } else { "off" });
+            println!("       trace: {}", if loaded_policy.trace.enabled { "on" } else { "off" });
+            println!("       snapshot: {}", if loaded_policy.snapshot.enabled { "on" } else { "off" });
         }
         None => {
             println!("  {} No railyard.yaml found (using defaults)", "●".cyan().bold());
-            let defaults = policy::defaults::default_blocklist();
-            println!("       {} default blocklist rules active", defaults.len());
+            println!("       mode: {}", mode_label);
+            println!("       {} default blocklist rules active", loaded_policy.blocklist.len());
         }
     }
 

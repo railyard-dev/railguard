@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Instant;
 
+use crate::block::evasion;
 use crate::fence::path::{check_path, extract_file_path};
 use crate::policy::engine::evaluate;
 use crate::snapshot::capture::capture_snapshot;
@@ -14,8 +15,20 @@ pub fn handle(input: &HookInput, policy: &Policy) -> HookOutput {
     let tool_name = input.tool_name.as_deref().unwrap_or("unknown");
     let tool_input = input.tool_input.clone().unwrap_or_default();
 
-    // 1. Path Fence check for file-touching tools
-    if let Some(file_path) = extract_file_path(tool_name, &tool_input) {
+    // 1. Path Fence — check all file paths the command might touch
+    if tool_name == "Bash" {
+        // For Bash: extract paths with variable expansion to catch indirection
+        if let Some(cmd) = tool_input.get("command").and_then(|v| v.as_str()) {
+            let paths = evasion::extract_paths_from_command(cmd);
+            for path in &paths {
+                if let Err(reason) = check_path(&policy.fence, path, &input.cwd) {
+                    log_decision(input, policy, tool_name, &tool_input, "block", Some("path-fence"), start);
+                    return HookOutput::deny(&reason);
+                }
+            }
+        }
+    } else if let Some(file_path) = extract_file_path(tool_name, &tool_input) {
+        // For Write/Edit/Read: check the explicit file_path
         if let Err(reason) = check_path(&policy.fence, &file_path, &input.cwd) {
             log_decision(input, policy, tool_name, &tool_input, "block", Some("path-fence"), start);
             return HookOutput::deny(&reason);

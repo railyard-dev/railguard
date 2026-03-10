@@ -50,10 +50,10 @@ pub fn load_policy_or_defaults(cwd: &Path) -> Policy {
     }
 }
 
-/// Merge user policy with built-in defaults.
+/// Merge user policy with built-in defaults based on mode.
 /// Built-in blocklist rules are always prepended — users can override with allowlist.
 fn merge_with_defaults(mut policy: Policy) -> Policy {
-    let defaults = crate::policy::defaults::default_blocklist();
+    let defaults = crate::policy::defaults::default_blocklist_for_mode(&policy.mode);
     let user_rule_names: std::collections::HashSet<String> =
         policy.blocklist.iter().map(|r| r.name.clone()).collect();
 
@@ -65,17 +65,26 @@ fn merge_with_defaults(mut policy: Policy) -> Policy {
     merged.append(&mut policy.blocklist);
     policy.blocklist = merged;
 
+    // In chill mode, disable fence by default (unless user explicitly enabled it)
+    if policy.mode == "chill" && policy.fence.denied_paths.is_empty() && policy.fence.allowed_paths.is_empty() {
+        policy.fence.enabled = false;
+    }
+
     policy
 }
 
-/// Default policy with built-in blocklist.
+/// Default policy with built-in blocklist (chill mode).
 pub fn default_policy() -> Policy {
     Policy {
         version: 1,
+        mode: "chill".to_string(),
         blocklist: crate::policy::defaults::default_blocklist(),
         approve: vec![],
         allowlist: vec![],
-        fence: Default::default(),
+        fence: crate::types::FenceConfig {
+            enabled: false,
+            ..Default::default()
+        },
         trace: Default::default(),
         snapshot: Default::default(),
     }
@@ -105,7 +114,9 @@ mod tests {
     fn test_load_default_policy() {
         let policy = default_policy();
         assert!(!policy.blocklist.is_empty());
-        assert!(policy.fence.enabled);
+        assert_eq!(policy.mode, "chill");
+        // Chill mode: fence is off by default
+        assert!(!policy.fence.enabled);
         assert!(policy.trace.enabled);
         assert!(policy.snapshot.enabled);
     }

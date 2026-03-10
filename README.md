@@ -170,4 +170,4 @@ cd railyard && cargo test    # 141 tests
 
 ---
 
-MIT License. Copyright 2026 Ari Choudhury.
+MIT License. Copyright 2026 Ari Choudhury <ari@railyard.tech>.

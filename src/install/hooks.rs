@@ -15,6 +15,13 @@ fn railyard_binary_path() -> String {
         .unwrap_or_else(|_| "railyard".to_string())
 }
 
+/// The CLAUDE.md content that teaches Claude about Railyard.
+const CLAUDE_MD_CONTENT: &str = include_str!("../../defaults/CLAUDE.md");
+
+/// Marker used to identify Railyard's section in CLAUDE.md.
+const CLAUDE_MD_MARKER_START: &str = "<!-- railyard:start -->";
+const CLAUDE_MD_MARKER_END: &str = "<!-- railyard:end -->";
+
 /// Install railyard hooks into Claude Code settings.
 pub fn install_hooks() -> Result<String, String> {
     let settings_path = claude_settings_path();
@@ -67,10 +74,67 @@ pub fn install_hooks() -> Result<String, String> {
 
     write_settings(&settings_path, &settings)?;
 
+    // Inject CLAUDE.md so Claude knows about Railyard
+    let claude_md_msg = inject_claude_md()?;
+
     Ok(format!(
-        "Installed railyard hooks in {}",
-        settings_path.display()
+        "Installed railyard hooks in {}\n  {} {}",
+        settings_path.display(),
+        "✓",
+        claude_md_msg
     ))
+}
+
+/// Inject Railyard instructions into the user's CLAUDE.md file.
+/// This teaches Claude Code about rollback, context, and what's blocked.
+fn inject_claude_md() -> Result<String, String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let claude_md_path = home.join(".claude").join("CLAUDE.md");
+
+    let marked_content = format!(
+        "{}\n{}\n{}",
+        CLAUDE_MD_MARKER_START, CLAUDE_MD_CONTENT, CLAUDE_MD_MARKER_END
+    );
+
+    if claude_md_path.exists() {
+        let existing = fs::read_to_string(&claude_md_path)
+            .map_err(|e| format!("Failed to read CLAUDE.md: {}", e))?;
+
+        if existing.contains(CLAUDE_MD_MARKER_START) {
+            // Replace existing railyard section
+            let before = existing
+                .split(CLAUDE_MD_MARKER_START)
+                .next()
+                .unwrap_or("");
+            let after = existing
+                .split(CLAUDE_MD_MARKER_END)
+                .nth(1)
+                .unwrap_or("");
+
+            let updated = format!("{}{}{}", before.trim_end(), marked_content, after);
+            fs::write(&claude_md_path, updated.trim().to_string() + "\n")
+                .map_err(|e| format!("Failed to update CLAUDE.md: {}", e))?;
+
+            return Ok("Updated Railyard instructions in ~/.claude/CLAUDE.md".to_string());
+        }
+
+        // Append to existing file
+        let updated = format!("{}\n\n{}\n", existing.trim_end(), marked_content);
+        fs::write(&claude_md_path, updated)
+            .map_err(|e| format!("Failed to update CLAUDE.md: {}", e))?;
+
+        Ok("Added Railyard instructions to ~/.claude/CLAUDE.md".to_string())
+    } else {
+        // Create new file
+        if let Some(parent) = claude_md_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create ~/.claude dir: {}", e))?;
+        }
+        fs::write(&claude_md_path, format!("{}\n", marked_content))
+            .map_err(|e| format!("Failed to create CLAUDE.md: {}", e))?;
+
+        Ok("Created ~/.claude/CLAUDE.md with Railyard instructions".to_string())
+    }
 }
 
 /// Remove railyard hooks from Claude Code settings.
@@ -119,10 +183,42 @@ pub fn uninstall_hooks() -> Result<String, String> {
 
     write_settings(&settings_path, &settings)?;
 
+    // Clean up CLAUDE.md
+    remove_claude_md_section();
+
     Ok(format!(
         "Removed railyard hooks from {}",
         settings_path.display()
     ))
+}
+
+/// Remove Railyard section from CLAUDE.md during uninstall.
+fn remove_claude_md_section() {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return,
+    };
+    let claude_md_path = home.join(".claude").join("CLAUDE.md");
+
+    if !claude_md_path.exists() {
+        return;
+    }
+
+    if let Ok(content) = fs::read_to_string(&claude_md_path) {
+        if content.contains(CLAUDE_MD_MARKER_START) {
+            let before = content
+                .split(CLAUDE_MD_MARKER_START)
+                .next()
+                .unwrap_or("");
+            let after = content
+                .split(CLAUDE_MD_MARKER_END)
+                .nth(1)
+                .unwrap_or("");
+
+            let cleaned = format!("{}{}", before.trim_end(), after.trim_start());
+            let _ = fs::write(&claude_md_path, cleaned.trim().to_string() + "\n");
+        }
+    }
 }
 
 /// Check if we're running in an interactive terminal (not piped by an agent).

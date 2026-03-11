@@ -30,7 +30,7 @@ Railroad makes `--dangerously-skip-permissions` safe.
 
 Claude Code's sandbox and auto mode handle system-level sandboxing — filesystem access, network restrictions, OS-level permissions. Railroad is a different thing entirely.
 
-Railroad is a hardening layer for autonomous Claude Code. It evaluates every command the agent runs and enforces practical restrictions — the same ones any experienced engineer would put in place before letting code run unattended in a real codebase.
+Railroad is a hardening layer for running Claude Code outside the sandbox, against real production assets, with guardrails. It evaluates every command the agent runs and enforces practical restrictions — the same ones any experienced engineer would put in place before letting code run unattended.
 
 `npm install` is fine. `terraform destroy --auto-approve` is not. `git commit` is fine. `git push --force origin main` is not. You already know this. Railroad knows it too.
 

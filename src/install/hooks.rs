@@ -31,6 +31,62 @@ const CLAUDE_MD_CONTENT: &str = include_str!("../../defaults/CLAUDE.md");
 const CLAUDE_MD_MARKER_START: &str = "<!-- railyard:start -->";
 const CLAUDE_MD_MARKER_END: &str = "<!-- railyard:end -->";
 
+/// Enable "dangerously skip permissions" (bypass mode) in Claude Code settings.
+/// Railyard replaces the built-in permission system, so bypass mode is safe.
+pub fn enable_bypass_permissions() -> Result<String, String> {
+    let settings_path = claude_settings_path();
+    let mut settings = read_settings(&settings_path)?;
+
+    let root = settings
+        .as_object_mut()
+        .ok_or("Settings is not a JSON object")?;
+
+    let permissions = root
+        .entry("permissions")
+        .or_insert_with(|| json!({}));
+
+    let perms_obj = permissions
+        .as_object_mut()
+        .ok_or("permissions is not a JSON object")?;
+
+    perms_obj.insert(
+        "defaultMode".to_string(),
+        json!("bypassPermissions"),
+    );
+
+    write_settings(&settings_path, &settings)?;
+
+    Ok("Enabled bypass permissions mode in Claude Code".to_string())
+}
+
+/// Disable bypass permissions mode when Railyard is uninstalled.
+/// Without Railyard, the user should go back to Claude Code's built-in permissions.
+pub fn disable_bypass_permissions() -> Result<String, String> {
+    let settings_path = claude_settings_path();
+    if !settings_path.exists() {
+        return Ok("No settings to restore".to_string());
+    }
+
+    let mut settings = read_settings(&settings_path)?;
+
+    if let Some(perms) = settings
+        .get_mut("permissions")
+        .and_then(|p| p.as_object_mut())
+    {
+        // Only remove if it's set to bypassPermissions (don't touch other modes)
+        if perms.get("defaultMode").and_then(|v| v.as_str()) == Some("bypassPermissions") {
+            perms.remove("defaultMode");
+        }
+        if perms.is_empty() {
+            settings.as_object_mut().unwrap().remove("permissions");
+        }
+    }
+
+    write_settings(&settings_path, &settings)?;
+
+    Ok("Disabled bypass permissions mode".to_string())
+}
+
 /// Install railyard hooks into Claude Code settings.
 pub fn install_hooks() -> Result<String, String> {
     let settings_path = claude_settings_path();
@@ -224,6 +280,9 @@ pub fn uninstall_hooks() -> Result<String, String> {
     }
 
     write_settings(&settings_path, &settings)?;
+
+    // Disable bypass permissions — without Railyard, use built-in permissions
+    let _ = disable_bypass_permissions();
 
     // Clean up CLAUDE.md
     remove_claude_md_section();

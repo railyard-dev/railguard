@@ -308,10 +308,17 @@ pub fn default_blocklist() -> Vec<Rule> {
         },
         Rule {
             name: "railyard-config-edit".to_string(),
-            tool: "*".to_string(),
+            tool: "Write".to_string(),
             pattern: r"railyard\.yaml".to_string(),
             action: "approve".to_string(),
-            message: Some("Editing Railyard policy requires human approval — review the changes carefully".to_string()),
+            message: Some("Writing Railyard policy requires human approval".to_string()),
+        },
+        Rule {
+            name: "railyard-config-edit-2".to_string(),
+            tool: "Edit".to_string(),
+            pattern: r"railyard\.yaml".to_string(),
+            action: "approve".to_string(),
+            message: Some("Editing Railyard policy requires human approval".to_string()),
         },
         Rule {
             name: "railyard-tamper-settings".to_string(),

@@ -30,7 +30,7 @@ pub fn handle(input: &HookInput, policy: &Policy) -> HookOutput {
     SessionState::cleanup_old_states(&state_dir);
 
     if policy.trace.enabled {
-        let trace_dir = cwd.join(&policy.trace.directory);
+        let trace_dir = crate::trace::logger::global_trace_dir();
 
         let entry = TraceEntry {
             timestamp: chrono::Utc::now().to_rfc3339(),
@@ -50,6 +50,6 @@ pub fn handle(input: &HookInput, policy: &Policy) -> HookOutput {
 
     match update_message {
         Some(msg) => HookOutput::session_message(&msg),
-        None => HookOutput::allow(),
+        None => HookOutput::noop(),
     }
 }

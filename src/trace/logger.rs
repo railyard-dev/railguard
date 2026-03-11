@@ -1,8 +1,16 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::types::TraceEntry;
+
+/// Return the global trace directory: ~/.railyard/traces
+pub fn global_trace_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".railyard")
+        .join("traces")
+}
 
 /// Append a trace entry to the session log file.
 pub fn log_trace(trace_dir: &Path, session_id: &str, entry: &TraceEntry) -> Result<(), String> {

@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
 
-use railyard::{configure, context, hook, install, policy, snapshot, trace};
+use railyard::{configure, context, dashboard, hook, install, policy, snapshot, trace};
 
 #[derive(Parser)]
 #[command(name = "railyard", version, about = "A secure runtime for AI coding agents.")]
@@ -82,6 +82,19 @@ enum Commands {
 
     /// Interactive policy configuration (launches Claude Code)
     Chat,
+
+    /// Live dashboard showing all tool calls and decisions
+    Dashboard {
+        /// Session ID to monitor (auto-detects latest if omitted)
+        #[arg(long)]
+        session: Option<String>,
+        /// Use streaming output instead of TUI
+        #[arg(long)]
+        stream: bool,
+        /// Show historical entries on startup (streaming mode only)
+        #[arg(long)]
+        history: bool,
+    },
 }
 
 fn main() {
@@ -99,6 +112,13 @@ fn main() {
         Some(Commands::Status) => cmd_status(),
         Some(Commands::Configure) => configure::run_configure(),
         Some(Commands::Chat) => cmd_chat(),
+        Some(Commands::Dashboard { session, stream, history }) => {
+            if stream {
+                dashboard::run_stream(session, history)
+            } else {
+                dashboard::run(session)
+            }
+        }
         None => {
             // No subcommand: show status
             cmd_status()
@@ -109,6 +129,8 @@ fn main() {
 }
 
 fn cmd_install() -> i32 {
+    use dialoguer::{theme::ColorfulTheme, Confirm};
+
     println!("{}", "railyard".bold());
     println!();
 
@@ -119,6 +141,26 @@ fn cmd_install() -> i32 {
             println!("  {} Hooks registered with Claude Code", "✓".green().bold());
             println!("  {} {}", "✓".green().bold(), msg);
             println!("  {} {} default rules active", "✓".green().bold(), rule_count);
+
+            // Prompt to enable bypass permissions (Railyard replaces it)
+            println!();
+            let enable_bypass = Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt("  Enable dangerously skip permissions? (Railyard replaces it)")
+                .default(true)
+                .interact()
+                .unwrap_or(true);
+
+            if enable_bypass {
+                match install::hooks::enable_bypass_permissions() {
+                    Ok(_) => {
+                        println!("  {} Dangerously skip permissions enabled — Railyard handles safety now", "✓".green().bold());
+                    }
+                    Err(e) => {
+                        eprintln!("  {} Failed to enable bypass mode: {}", "✗".yellow().bold(), e);
+                    }
+                }
+            }
+
             println!();
             println!("  Customize with: {}", "railyard init".cyan());
             0
@@ -168,9 +210,7 @@ fn cmd_init() -> i32 {
 }
 
 fn cmd_log(session: Option<String>, count: usize) -> i32 {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let policy = policy::loader::load_policy_or_defaults(&cwd);
-    let trace_dir = cwd.join(&policy.trace.directory);
+    let trace_dir = trace::logger::global_trace_dir();
 
     if let Some(session_id) = session {
         match trace::logger::read_traces(&trace_dir, &session_id) {
@@ -225,7 +265,7 @@ fn cmd_rollback(
 
     if id.is_none() && file.is_none() && steps.is_none() {
         let session_id = session.unwrap_or_else(|| {
-            trace::logger::list_sessions(&cwd.join(&policy.trace.directory))
+            trace::logger::list_sessions(&trace::logger::global_trace_dir())
                 .unwrap_or_default()
                 .last()
                 .cloned()
@@ -319,7 +359,7 @@ fn cmd_rollback(
 fn cmd_context(session_id: &str, verbose: bool) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
     let policy = policy::loader::load_policy_or_defaults(&cwd);
-    let trace_dir = cwd.join(&policy.trace.directory);
+    let trace_dir = trace::logger::global_trace_dir();
     let snap_dir = cwd.join(&policy.snapshot.directory);
 
     context::print_context(&trace_dir, &snap_dir, session_id, verbose);

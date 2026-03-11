@@ -1,4 +1,5 @@
 pub mod block;
+pub mod dashboard;
 pub mod configure;
 pub mod context;
 pub mod fence;

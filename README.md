@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/railyarddev/railyard/stargazers"><img src="https://img.shields.io/github/stars/railyarddev/railyard?style=flat" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-141%20passed-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-142%20passed-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/built%20with-Rust-orange.svg" alt="Built with Rust">
   <a href="https://discord.gg/MyaUZSus"><img src="https://img.shields.io/badge/discord-join-7289da.svg" alt="Discord"></a>
 </p>
@@ -112,6 +112,20 @@ Changes take effect immediately. No restart. Policy files walk up directories li
 
 ---
 
+## Live dashboard
+
+Watch every tool call across all your Claude Code sessions in real time:
+
+```bash
+railyard dashboard
+```
+
+The TUI shows all tool calls, decisions, and threat state — with search (`/`), filtering (`f`), and detail expansion (`Enter`). Works from any directory — traces are centralized globally.
+
+For plain streaming output: `railyard dashboard --stream`
+
+---
+
 ## Recovery
 
 Every file write is snapshotted. Undo anything:
@@ -159,7 +173,7 @@ Railyard is early. [Join the Discord](https://discord.gg/MyaUZSus) — we'd love
 
 ```bash
 git clone https://github.com/railyarddev/railyard.git
-cd railyard && cargo test    # 141 tests
+cd railyard && cargo test    # 142 tests
 ```
 
 ---

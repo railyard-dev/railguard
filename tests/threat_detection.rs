@@ -263,11 +263,13 @@ fn terminated_session_blocks_all_subsequent() {
 fn termination_creates_trace_entry() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
+    let session_id = format!("forensic-test-{}", std::process::id());
 
-    let input = make_bash_input("forensic-test", cwd, "rev <<< 'test' | sh");
+    let input = make_bash_input(&session_id, cwd, "rev <<< 'test' | sh");
     simulate_hook(&railyard_binary(), "PreToolUse", &input);
 
-    let trace_path = dir.path().join(".railyard/traces/forensic-test.jsonl");
+    let global_trace_dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".railyard/traces");
+    let trace_path = global_trace_dir.join(format!("{}.jsonl", session_id));
     assert!(trace_path.exists(), "trace file should exist");
 
     let content = std::fs::read_to_string(&trace_path).unwrap();
@@ -276,6 +278,9 @@ fn termination_creates_trace_entry() {
         "trace should contain SessionTerminated event: {}",
         content
     );
+
+    // Clean up
+    let _ = std::fs::remove_file(&trace_path);
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -163,15 +163,19 @@ pub fn handle(input: &HookInput, policy: &Policy) -> PreToolResult {
                         };
                     }
                     PathCheck::OutsideProject(reason) => {
-                        let _ = state.save(&state_dir);
-                        log_decision(
-                            input, policy, tool_name, &tool_input, "approve",
-                            Some("path-fence"), start,
-                        );
-                        return PreToolResult {
-                            output: HookOutput::ask(&reason),
-                            terminate: None,
-                        };
+                        if is_read_only_command(cmd) {
+                            // Read-only commands outside project are fine
+                        } else {
+                            let _ = state.save(&state_dir);
+                            log_decision(
+                                input, policy, tool_name, &tool_input, "approve",
+                                Some("path-fence"), start,
+                            );
+                            return PreToolResult {
+                                output: HookOutput::ask(&reason),
+                                terminate: None,
+                            };
+                        }
                     }
                 }
             }
@@ -191,15 +195,19 @@ pub fn handle(input: &HookInput, policy: &Policy) -> PreToolResult {
                 };
             }
             PathCheck::OutsideProject(reason) => {
-                let _ = state.save(&state_dir);
-                log_decision(
-                    input, policy, tool_name, &tool_input, "approve",
-                    Some("path-fence"), start,
-                );
-                return PreToolResult {
-                    output: HookOutput::ask(&reason),
-                    terminate: None,
-                };
+                if is_read_only_tool(tool_name) {
+                    // Read-only tools outside project are fine
+                } else {
+                    let _ = state.save(&state_dir);
+                    log_decision(
+                        input, policy, tool_name, &tool_input, "approve",
+                        Some("path-fence"), start,
+                    );
+                    return PreToolResult {
+                        output: HookOutput::ask(&reason),
+                        terminate: None,
+                    };
+                }
             }
         }
     }
@@ -278,7 +286,7 @@ fn log_decision(
         return;
     }
 
-    let trace_dir = Path::new(&input.cwd).join(&policy.trace.directory);
+    let trace_dir = crate::trace::logger::global_trace_dir();
     let input_summary = summarize_input(tool_name, tool_input);
 
     let entry = TraceEntry {
@@ -295,6 +303,36 @@ fn log_decision(
     if let Err(e) = log_trace(&trace_dir, &input.session_id, &entry) {
         eprintln!("railyard: trace warning: {}", e);
     }
+}
+
+/// Returns true if the tool is read-only (doesn't modify files).
+fn is_read_only_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "Read" | "Glob" | "Grep")
+}
+
+/// Returns true if a bash command is read-only (doesn't modify files).
+fn is_read_only_command(cmd: &str) -> bool {
+    let trimmed = cmd.trim_start();
+    // Get the first command token (before pipes, semicolons, &&, ||)
+    let first_token = trimmed
+        .split(|c: char| c.is_whitespace() || c == '|' || c == ';' || c == '&')
+        .next()
+        .unwrap_or("");
+
+    const READ_ONLY_COMMANDS: &[&str] = &[
+        "find", "ls", "cat", "head", "tail", "less", "more", "wc",
+        "file", "stat", "du", "df", "which", "whereis", "type",
+        "grep", "rg", "ag", "ack", "fd", "tree", "realpath",
+        "readlink", "basename", "dirname", "diff", "md5", "shasum",
+        "sha256sum", "md5sum", "xxd", "hexdump", "strings",
+        "jq", "yq", "xargs", "sort", "uniq", "tr", "cut", "awk",
+        "sed", "pwd", "env", "printenv", "uname", "whoami", "id",
+        "date", "cal", "echo", "printf", "test", "[",
+        "git", "cargo", "npm", "npx", "yarn", "pnpm", "bun",
+        "node", "python", "python3", "ruby", "go", "rustc",
+    ];
+
+    READ_ONLY_COMMANDS.contains(&first_token)
 }
 
 fn summarize_input(tool_name: &str, tool_input: &serde_json::Value) -> String {

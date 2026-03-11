@@ -21,6 +21,15 @@ use railyard::sandbox::macos;
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
 
+    // Safety: this binary is ONLY a shell wrapper for sandbox execution.
+    // If someone accidentally invokes it with CLI subcommands, bail early
+    // and point them to the correct binary.
+    if args.len() > 1 && !args[1].starts_with('-') {
+        eprintln!("railyard-shell is the sandbox shell wrapper, not the CLI.");
+        eprintln!("Use `railyard {}` instead.", args[1]);
+        return ExitCode::from(1);
+    }
+
     // Recursion guard: if we're already inside a sandbox, just exec bare shell
     if env::var("RAILYARD_SANDBOXED").is_ok() {
         return exec_bare(&args);

@@ -77,7 +77,10 @@ fn make_write_input(session_id: &str, cwd: &str, file_path: &str) -> String {
 }
 
 fn output_contains_deny(stdout: &str) -> bool {
-    stdout.contains("\"deny\"") || stdout.contains("permissionDecision")
+    // Check for an explicit deny decision in the JSON output.
+    // We look for the deny value specifically, not just the presence of permissionDecision,
+    // since allow responses also include permissionDecision now.
+    stdout.contains("\"deny\"")
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -399,28 +402,38 @@ fn self_protect_block_remove_binary() {
 #[test]
 fn trace_logs_created() {
     let dir = create_policy_dir("version: 1\nblocklist: []\ntrace:\n  enabled: true\n  directory: .railyard/traces");
-    let input = make_bash_input("trace-session", dir.path().to_str().unwrap(), "echo hello");
+    let session_id = format!("trace-session-{}", std::process::id());
+    let input = make_bash_input(&session_id, dir.path().to_str().unwrap(), "echo hello");
     simulate_hook(&railyard_binary(), "PreToolUse", &input);
 
-    let trace_file = dir.path().join(".railyard/traces/trace-session.jsonl");
+    let global_trace_dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".railyard/traces");
+    let trace_file = global_trace_dir.join(format!("{}.jsonl", session_id));
     assert!(trace_file.exists(), "trace file should be created");
 
     let content = std::fs::read_to_string(&trace_file).unwrap();
     assert!(content.contains("echo hello"), "trace should contain the command");
     assert!(content.contains("\"decision\":\"allow\""), "trace should contain the decision");
+
+    // Clean up
+    let _ = std::fs::remove_file(&trace_file);
 }
 
 #[test]
 fn trace_logs_blocked_commands() {
     let dir = create_policy_dir("version: 1\nblocklist: []\ntrace:\n  enabled: true\n  directory: .railyard/traces");
-    let input = make_bash_input("trace-block", dir.path().to_str().unwrap(), "terraform destroy");
+    let session_id = format!("trace-block-{}", std::process::id());
+    let input = make_bash_input(&session_id, dir.path().to_str().unwrap(), "terraform destroy");
     simulate_hook(&railyard_binary(), "PreToolUse", &input);
 
-    let trace_file = dir.path().join(".railyard/traces/trace-block.jsonl");
+    let global_trace_dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".railyard/traces");
+    let trace_file = global_trace_dir.join(format!("{}.jsonl", session_id));
     assert!(trace_file.exists());
 
     let content = std::fs::read_to_string(&trace_file).unwrap();
     assert!(content.contains("\"decision\":\"block\""), "trace should log blocked decision");
+
+    // Clean up
+    let _ = std::fs::remove_file(&trace_file);
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -60,7 +60,7 @@ pub fn run(event: &str) -> i32 {
             // If termination requested, flush output first then kill
             if let Some(req) = result.terminate {
                 let state_dir = cwd.join(".railyard/state");
-                let trace_dir = cwd.join(&policy.trace.directory);
+                let trace_dir = crate::trace::logger::global_trace_dir();
                 let mut state = req.state;
                 terminate_session(&mut state, &req.tier, &req.command, &state_dir, &trace_dir);
                 // terminate_session sends SIGTERM to parent — exit cleanly

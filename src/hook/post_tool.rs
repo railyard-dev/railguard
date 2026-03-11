@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::Instant;
 
 use crate::trace::logger::log_trace;
@@ -35,7 +34,7 @@ pub fn handle(input: &HookInput, policy: &Policy) {
             .collect(),
     };
 
-    let trace_dir = Path::new(&input.cwd).join(&policy.trace.directory);
+    let trace_dir = crate::trace::logger::global_trace_dir();
 
     let entry = TraceEntry {
         timestamp: chrono::Utc::now().to_rfc3339(),

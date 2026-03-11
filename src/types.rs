@@ -41,7 +41,23 @@ pub struct HookSpecificOutput {
 }
 
 impl HookOutput {
+    /// Explicitly allow a PreToolUse tool call.
+    /// Returns a permission_decision of "allow" so Claude Code doesn't
+    /// fall back to its default confirmation prompt.
     pub fn allow() -> Self {
+        HookOutput {
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: "PreToolUse".to_string(),
+                permission_decision: Some("allow".to_string()),
+                permission_decision_reason: None,
+                additional_context: None,
+            }),
+        }
+    }
+
+    /// No-op output for events that don't need a permission decision
+    /// (e.g. SessionStart, PostToolUse).
+    pub fn noop() -> Self {
         HookOutput {
             hook_specific_output: None,
         }

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-03-11
+
+### Added
+
+- **Live TUI dashboard** — `railyard dashboard` launches a full terminal UI showing all tool calls and decisions in real time. Search (`/`), filter (`f`), expand details (`Enter`), vim-style navigation.
+- **Global trace directory** — all traces now write to `~/.railyard/traces/` instead of per-project `.railyard/traces/`. Dashboard and `railyard log` work from any directory and see all sessions across all projects.
+- **Streaming mode** — `railyard dashboard --stream` for plain text output (old default behavior).
+
+### Fixed
+
+- **Dashboard shows no output** — traces were written relative to the project where Claude Code was running, but the dashboard read relative to where it was launched. Global traces fix this.
+- **Config-edit rule too broad** — `railyard-config-edit` used `tool: *` which triggered approval on any tool call mentioning `railyard.yaml` (including `find` and `grep`). Now scoped to `Write` and `Edit` tools only.
+- **TUI crash leaves terminal broken** — added panic hook to restore terminal state on crash.
+- **Text invisible on light terminals** — replaced hardcoded `Color::White` with `Color::Reset` (terminal default foreground).
+
+### Changed
+
+- **Dashboard TUI is now the default** — `railyard dashboard` launches TUI. Use `--stream` for the old streaming behavior.
+- **142 tests** (was 141)
+
 ## [0.2.0] - 2026-03-10
 
 ### Changed

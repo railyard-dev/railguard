@@ -5,6 +5,8 @@
 </p>
 
 <p align="center">
+  <a href="https://crates.io/crates/railyard-ai"><img src="https://img.shields.io/crates/v/railyard.svg" alt="crates.io"></a>
+  <a href="https://crates.io/crates/railyard-ai"><img src="https://img.shields.io/crates/d/railyard.svg" alt="Downloads"></a>
   <a href="https://github.com/railyarddev/railyard/stargazers"><img src="https://img.shields.io/github/stars/railyarddev/railyard?style=flat" alt="GitHub stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/tests-151%20passed-brightgreen" alt="Tests">
@@ -17,7 +19,7 @@
 ## Install
 
 ```bash
-cargo install --git https://github.com/railyarddev/railyard.git
+cargo install railyard-ai
 railyard install
 ```
 

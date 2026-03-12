@@ -122,6 +122,14 @@ railroad rollback --session <id>               # undo entire session
 
 ---
 
+## Works with
+
+**Claude Code** — fully supported today via native hooks.
+
+**Kiro** — coming soon. **Codex** — coming soon.
+
+---
+
 ## Contributing
 
 Railroad is early. [Join the Discord](https://discord.gg/MyaUZSus) — we'd love your help.

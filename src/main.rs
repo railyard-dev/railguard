@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
 
-use railroad::{configure, coord, context, dashboard, hook, install, policy, replay, snapshot, trace};
+use railroad::{configure, coord, context, dashboard, hook, install, policy, replay, snapshot, trace, update};
 
 #[derive(Parser)]
 #[command(name = "railroad", version, about = "A secure runtime for AI coding agents.")]
@@ -105,6 +105,13 @@ enum Commands {
 
     /// Show active file locks across all sessions
     Locks,
+
+    /// Check for updates and install the latest version
+    Update {
+        /// Only check if an update is available (don't install)
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() {
@@ -131,6 +138,7 @@ fn main() {
         }
         Some(Commands::Replay { session }) => replay::run(&session),
         Some(Commands::Locks) => cmd_locks(),
+        Some(Commands::Update { check }) => update::run_update(check),
         None => {
             // No subcommand: show status
             cmd_status()

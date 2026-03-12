@@ -44,8 +44,12 @@ pub fn check_path(config: &FenceConfig, file_path: &str, cwd: &str) -> PathCheck
         }
     }
 
-    // If allowed_paths is non-empty, the path must be in one of them
+    // If allowed_paths is non-empty, the path must be in the project directory or one of the allowed paths
     if !config.allowed_paths.is_empty() {
+        // Project directory is always implicitly allowed
+        if path_starts_with(&canonical, &cwd_canonical) {
+            return PathCheck::Allow;
+        }
         for allowed in &config.allowed_paths {
             let allowed_canonical = canonicalize_best_effort(&expand_path(allowed));
             if path_starts_with(&canonical, &allowed_canonical) {
@@ -239,6 +243,19 @@ mod tests {
         let config = FenceConfig {
             enabled: true,
             allowed_paths: vec!["/project".to_string(), "/tmp".to_string()],
+            denied_paths: vec![],
+        };
+        assert_eq!(check_path(&config, "/project/src/main.rs", "/project"), PathCheck::Allow);
+        assert_eq!(check_path(&config, "/tmp/test.txt", "/project"), PathCheck::Allow);
+        assert!(matches!(check_path(&config, "/other/file.txt", "/project"), PathCheck::OutsideProject(_)));
+    }
+
+    #[test]
+    fn test_allowed_paths_implicitly_includes_cwd() {
+        // When allowed_paths is set but doesn't include cwd, cwd should still be allowed
+        let config = FenceConfig {
+            enabled: true,
+            allowed_paths: vec!["/tmp".to_string()],
             denied_paths: vec![],
         };
         assert_eq!(check_path(&config, "/project/src/main.rs", "/project"), PathCheck::Allow);

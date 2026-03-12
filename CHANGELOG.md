@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-03-12
+
+### Added
+
+- **`railroad update` command** — checks GitHub for the latest release, compares semver versions, shows changelog, downloads prebuilt binary (or falls back to `cargo install`), and re-registers hooks automatically. Use `--check` to check without installing.
+
+### Fixed
+
+- **Path fence blocked writes to project directory** — when `allowed_paths` was set in `railroad.yaml`, the project directory (CWD) was not implicitly allowed, causing all file writes to be denied. CWD is now always permitted regardless of `allowed_paths` configuration.
+
 ## [0.3.0] - 2026-03-11
 
 ### Added

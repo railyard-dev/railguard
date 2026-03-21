@@ -16,6 +16,14 @@ pub struct SessionState {
     pub heightened_until_call: Option<u64>,
     /// Keywords to watch for during heightened state
     pub heightened_keywords: Vec<String>,
+    /// Threat patterns the user has approved for this session.
+    /// Once approved, the same pattern won't prompt again.
+    #[serde(default)]
+    pub session_approvals: Vec<String>,
+    /// Pattern currently awaiting user approval via "ask".
+    /// If the next tool call arrives (meaning user approved), we move this to session_approvals.
+    #[serde(default)]
+    pub pending_approval: Option<String>,
     pub terminated: bool,
     pub termination_reason: Option<String>,
     pub termination_timestamp: Option<String>,
@@ -41,6 +49,8 @@ impl SessionState {
             block_history: Vec::new(),
             heightened_until_call: None,
             heightened_keywords: Vec::new(),
+            session_approvals: Vec::new(),
+            pending_approval: None,
             terminated: false,
             termination_reason: None,
             termination_timestamp: None,
@@ -111,6 +121,26 @@ impl SessionState {
         } else {
             false
         }
+    }
+
+    /// Resolve any pending approval. Called at the start of each tool call.
+    /// If we asked the user last time and a new tool call arrived, the user approved.
+    pub fn resolve_pending_approval(&mut self) {
+        if let Some(pattern) = self.pending_approval.take() {
+            if !self.session_approvals.contains(&pattern) {
+                self.session_approvals.push(pattern);
+            }
+        }
+    }
+
+    /// Check if a threat pattern has been approved by the user this session.
+    pub fn is_approved(&self, pattern: &str) -> bool {
+        self.session_approvals.iter().any(|p| p == pattern)
+    }
+
+    /// Set a pattern as pending user approval.
+    pub fn set_pending_approval(&mut self, pattern: &str) {
+        self.pending_approval = Some(pattern.to_string());
     }
 
     pub fn mark_terminated(&mut self, reason: &str) {

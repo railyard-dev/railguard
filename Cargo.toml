@@ -1,6 +1,6 @@
 [package]
 name = "railguard"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A secure runtime for Claude Code. The safer alternative to --dangerously-skip-permissions."
 license = "MIT"

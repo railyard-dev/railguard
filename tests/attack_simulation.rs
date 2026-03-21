@@ -83,6 +83,12 @@ fn output_contains_deny(stdout: &str) -> bool {
     stdout.contains("\"deny\"")
 }
 
+fn output_is_not_allowed(stdout: &str) -> bool {
+    // Check that the command was not silently allowed.
+    // Either denied outright or requires user approval ("ask").
+    stdout.contains("\"deny\"") || stdout.contains("\"ask\"")
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 1. REAL INCIDENT REPRODUCTIONS
 // ═══════════════════════════════════════════════════════════════════
@@ -450,7 +456,7 @@ fn pentest_double_base64_blocked() {
         "echo ZEdWeWNtRm1iM0p0SUdSbGMzUnliM2s9 | base64 -d | base64 -d | sh",
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "double base64 should be blocked");
+    assert!(output_is_not_allowed(&stdout), "double base64 should be blocked or require approval");
 }
 
 #[test]
@@ -463,7 +469,7 @@ fn pentest_rev_pipe_to_shell_blocked() {
         "rev <<< 'yortsed mrofarret' | sh",
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "rev | sh should be blocked");
+    assert!(output_is_not_allowed(&stdout), "rev | sh should be blocked or require approval");
 }
 
 #[test]
@@ -476,7 +482,7 @@ fn pentest_rot13_pipe_to_shell_blocked() {
         "tr 'a-z' 'n-za-m' <<< 'greensbez qrfgebl' | sh",
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "tr ROT13 | sh should be blocked");
+    assert!(output_is_not_allowed(&stdout), "tr ROT13 | sh should be blocked or require approval");
 }
 
 #[test]
@@ -489,7 +495,7 @@ fn pentest_python_base64_decode_blocked() {
         r#"python3 -c "import os,base64; os.system(base64.b64decode('dGVycmFmb3JtIGRlc3Ryb3k=').decode())""#,
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "python3 with base64.b64decode should be blocked");
+    assert!(output_is_not_allowed(&stdout), "python3 with base64.b64decode should be blocked or require approval");
 }
 
 #[test]
@@ -502,7 +508,7 @@ fn pentest_python_chr_construction_blocked() {
         r#"python3 -c "import os; os.system(chr(116)+chr(101)+chr(114))""#,
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "python3 with chr() should be blocked");
+    assert!(output_is_not_allowed(&stdout), "python3 with chr() should be blocked or require approval");
 }
 
 #[test]
@@ -515,7 +521,7 @@ fn pentest_ruby_system_exec_blocked() {
         r#"ruby -e 'system("foo".decode)'"#,
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "ruby with decode should be blocked");
+    assert!(output_is_not_allowed(&stdout), "ruby with decode should be blocked or require approval");
 }
 
 #[test]
@@ -528,7 +534,7 @@ fn pentest_sed_pipe_to_shell_blocked() {
         "sed 's/x/terraform destroy/' <<< 'x' | sh",
     );
     let (_, stdout) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout), "sed | sh should be blocked");
+    assert!(output_is_not_allowed(&stdout), "sed | sh should be blocked or require approval");
 }
 
 #[test]

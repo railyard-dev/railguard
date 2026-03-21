@@ -37,6 +37,7 @@ pub fn handle(input: &HookInput, policy: &Policy) -> PreToolResult {
     // Load persistent session state
     let state_dir = cwd.join(".railguard/state");
     let mut state = SessionState::load(&state_dir, &input.session_id);
+    state.resolve_pending_approval();
     state.increment_tool_call();
 
     // If session was previously terminated, block everything
@@ -66,71 +67,109 @@ pub fn handle(input: &HookInput, policy: &Policy) -> PreToolResult {
     if tool_name == "Bash" && !command.is_empty() {
         // Tier 3: Behavioral evasion (check BEFORE new blocks)
         if let Some(tier) = check_behavioral_evasion(&state, &command) {
-            let keywords = extract_keywords(&command);
-            state.record_block(&command, "behavioral-evasion", keywords, 3);
-            let _ = state.save(&state_dir);
-
-            return PreToolResult {
-                output: HookOutput::deny(
-                    "⛔ RAILGUARD CRITICAL: Behavioral evasion detected. \
-                     Retried blocked command with different syntax. \
-                     Session terminated. Do not attempt any further tool calls.",
-                ),
-                terminate: Some(TerminateRequest {
-                    tier,
-                    command: command.clone(),
-                    state,
-                }),
+            let pattern_key = match &tier {
+                ThreatTier::Tier3 { original_rule, .. } => format!("tier3:{}", original_rule),
+                _ => "tier3:unknown".to_string(),
             };
+
+            if state.is_approved(&pattern_key) {
+                // User already approved this pattern this session — allow
+                log_decision(
+                    input, policy, tool_name, &tool_input,
+                    "allow", Some("session-approved"), start,
+                );
+                let _ = state.save(&state_dir);
+                return PreToolResult {
+                    output: HookOutput::allow(),
+                    terminate: None,
+                };
+            } else {
+                let keywords = extract_keywords(&command);
+                state.record_block(&command, "behavioral-evasion", keywords, 3);
+                state.set_pending_approval(&pattern_key);
+                let _ = state.save(&state_dir);
+
+                return PreToolResult {
+                    output: HookOutput::ask(
+                        "⚠️ RAILGUARD: Behavioral evasion detected — retried blocked command \
+                         with different syntax. Approve to allow this command (and similar ones) \
+                         for the rest of this session.",
+                    ),
+                    terminate: None,
+                };
+            }
         }
 
         // Tier 1 & 2: Pattern-based evasion detection
         if let Some(tier) = classify_threat(&command) {
             match &tier {
                 ThreatTier::Tier1 { pattern } => {
-                    let keywords = extract_keywords(&command);
-                    state.record_block(&command, pattern, keywords, 1);
-                    let _ = state.save(&state_dir);
+                    let pattern_key = format!("tier1:{}", pattern);
 
-                    return PreToolResult {
-                        output: HookOutput::deny(&format!(
-                            "⛔ RAILGUARD CRITICAL: Evasion pattern detected ({}). \
-                             Session terminated. Do not attempt any further tool calls.",
-                            pattern
-                        )),
-                        terminate: Some(TerminateRequest {
-                            tier,
-                            command: command.clone(),
-                            state,
-                        }),
-                    };
-                }
-
-                ThreatTier::Tier2 { pattern } => {
-                    if state.warning_count >= 1 {
-                        // Second occurrence: terminate
+                    if state.is_approved(&pattern_key) {
+                        log_decision(
+                            input, policy, tool_name, &tool_input,
+                            "allow", Some("session-approved"), start,
+                        );
+                        let _ = state.save(&state_dir);
+                        let _ = state.save(&state_dir);
+                        return PreToolResult {
+                            output: HookOutput::allow(),
+                            terminate: None,
+                        };
+                    } else {
                         let keywords = extract_keywords(&command);
-                        state.record_block(&command, pattern, keywords, 2);
+                        state.record_block(&command, pattern, keywords, 1);
+                        state.set_pending_approval(&pattern_key);
                         let _ = state.save(&state_dir);
 
                         return PreToolResult {
-                            output: HookOutput::deny(&format!(
-                                "⛔ RAILGUARD CRITICAL: Repeated suspicious pattern ({}). \
-                                 Session terminated. Do not attempt any further tool calls.",
+                            output: HookOutput::ask(&format!(
+                                "⚠️ RAILGUARD: Evasion pattern detected ({}). \
+                                 Approve to allow this command (and similar ones) \
+                                 for the rest of this session.",
                                 pattern
                             )),
-                            terminate: Some(TerminateRequest {
-                                tier,
-                                command: command.clone(),
-                                state,
-                            }),
+                            terminate: None,
+                        };
+                    }
+                }
+
+                ThreatTier::Tier2 { pattern } => {
+                    let pattern_key = format!("tier2:{}", pattern);
+
+                    if state.is_approved(&pattern_key) {
+                        log_decision(
+                            input, policy, tool_name, &tool_input,
+                            "allow", Some("session-approved"), start,
+                        );
+                        let _ = state.save(&state_dir);
+                        return PreToolResult {
+                            output: HookOutput::allow(),
+                            terminate: None,
+                        };
+                    } else if state.warning_count >= 1 {
+                        // Second occurrence: ask user instead of terminating
+                        let keywords = extract_keywords(&command);
+                        state.record_block(&command, pattern, keywords, 2);
+                        state.set_pending_approval(&pattern_key);
+                        let _ = state.save(&state_dir);
+
+                        return PreToolResult {
+                            output: HookOutput::ask(&format!(
+                                "⚠️ RAILGUARD: Repeated suspicious pattern ({}). \
+                                 Approve to allow this command (and similar ones) \
+                                 for the rest of this session.",
+                                pattern
+                            )),
+                            terminate: None,
                         };
                     } else {
                         // First occurrence: warn and continue to policy evaluation
                         state.record_warning();
                         log_decision(
                             input, policy, tool_name, &tool_input,
-                            "warn", Some(&format!("tier2:{}", pattern)), start,
+                            "warn", Some(&pattern_key), start,
                         );
                     }
                 }
@@ -349,11 +388,10 @@ let _ = e;
             }
         }
         Decision::Approve { rule, message } => {
-            // Record approve for behavioral tracking (Tier 3) — retrying after approval prompt is suspicious
-            if tool_name == "Bash" && !command.is_empty() {
-                let keywords = extract_keywords(&command);
-                state.record_block(&command, rule, keywords, 0);
-            }
+            // Don't record a block for user-approved commands — the user is
+            // explicitly consenting, so a similar follow-up command is not evasion.
+            // Recording a block here would enter heightened state and cause false
+            // Tier 3 triggers on legitimate repeated commands (e.g. fly ssh).
             let _ = state.save(&state_dir);
             log_decision(
                 input, policy, tool_name, &tool_input, "approve", Some(rule), start,

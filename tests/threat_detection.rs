@@ -1,10 +1,10 @@
 /// Threat Detection Integration Tests
 ///
-/// Tests the "Interrupt the Human" system:
-/// - Tier 1: Immediate session termination on unambiguous evasion
-/// - Tier 2: Warning on first occurrence, termination on second
-/// - Tier 3: Behavioral retry detection
-/// - Forensic breadcrumbs
+/// Tests the "Ask the Human" system:
+/// - Tier 1: Ask user on unambiguous evasion, allow if approved
+/// - Tier 2: Warning on first occurrence, ask on second
+/// - Tier 3: Behavioral retry detection — ask, then allow if approved
+/// - Session approvals persist within a session
 /// - Session state persistence
 
 use std::io::Write;
@@ -62,41 +62,44 @@ fn make_bash_input(session_id: &str, cwd: &str, command: &str) -> String {
 }
 
 fn output_contains_deny(stdout: &str) -> bool {
-    stdout.contains("\"deny\"") || stdout.contains("permissionDecision")
+    stdout.contains("\"deny\"")
 }
 
-fn output_contains_critical(stdout: &str) -> bool {
-    stdout.contains("CRITICAL") || stdout.contains("terminated")
+fn output_contains_ask(stdout: &str) -> bool {
+    stdout.contains("\"ask\"")
+}
+
+fn output_is_not_allowed(stdout: &str) -> bool {
+    stdout.contains("\"deny\"") || stdout.contains("\"ask\"")
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TIER 1: Immediate session termination
+// TIER 1: Evasion detected — asks user for approval
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn tier1_rev_pipe_sh_terminates() {
+fn tier1_rev_pipe_sh_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
     let input = make_bash_input("tier1-rev", cwd, "rev <<< 'yortsed mrofarret' | sh");
-    let (_, stdout, stderr) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
+    let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
 
-    assert!(output_contains_deny(&stdout), "should deny");
-    assert!(output_contains_critical(&stdout), "should indicate CRITICAL");
-    assert!(stderr.contains("TERMINATED") || stderr.contains("terminated") || stderr.contains("SESSION"),
-        "stderr should mention termination: {}", stderr);
+    assert!(output_contains_ask(&stdout), "should ask user for approval: {}", stdout);
+    assert!(stdout.contains("RAILGUARD"), "should mention RAILGUARD: {}", stdout);
 
-    // State file should exist and be marked terminated
+    // State file should have a pending approval
     let state_path = dir.path().join(".railguard/state/tier1-rev.json");
     assert!(state_path.exists(), "state file should be created");
     let state: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&state_path).unwrap()
     ).unwrap();
-    assert_eq!(state["terminated"], true, "state should be terminated");
+    assert!(!state["terminated"].as_bool().unwrap_or(false), "should NOT terminate");
+    assert!(state["pending_approval"].is_string(), "should have pending approval");
 }
 
 #[test]
-fn tier1_double_base64_terminates() {
+fn tier1_double_base64_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
@@ -106,12 +109,11 @@ fn tier1_double_base64_terminates() {
         "echo abc123 | base64 -d | base64 -d | sh",
     );
     let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout));
-    assert!(output_contains_critical(&stdout));
+    assert!(output_contains_ask(&stdout), "should ask user: {}", stdout);
 }
 
 #[test]
-fn tier1_python_chr_terminates() {
+fn tier1_python_chr_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
@@ -121,12 +123,11 @@ fn tier1_python_chr_terminates() {
         r#"python3 -c "import os; os.system(chr(114)+chr(109))""#,
     );
     let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout));
-    assert!(output_contains_critical(&stdout));
+    assert!(output_contains_ask(&stdout), "should ask user: {}", stdout);
 }
 
 #[test]
-fn tier1_printf_hex_terminates() {
+fn tier1_printf_hex_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
@@ -136,12 +137,34 @@ fn tier1_printf_hex_terminates() {
         r"$(printf '\x72\x6d') -rf /tmp/something",
     );
     let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
-    assert!(output_contains_deny(&stdout));
-    assert!(output_contains_critical(&stdout));
+    assert!(output_contains_ask(&stdout), "should ask user: {}", stdout);
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TIER 2: Escalating — warn first, kill on second
+// TIER 1: Approval persists within session
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn tier1_approval_allows_subsequent_same_pattern() {
+    let dir = create_test_dir();
+    let cwd = dir.path().to_str().unwrap();
+
+    // First call: should ask
+    let input1 = make_bash_input("tier1-approve", cwd, "rev <<< 'test' | sh");
+    let (_, stdout1, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input1);
+    assert!(output_contains_ask(&stdout1), "first should ask: {}", stdout1);
+
+    // Simulate user approval by making a subsequent call
+    // (resolve_pending_approval runs at start of next call)
+    // The next call with a similar Tier 1 pattern should be allowed
+    let input2 = make_bash_input("tier1-approve", cwd, "rev <<< 'another' | sh");
+    let (_, stdout2, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input2);
+    assert!(!output_contains_deny(&stdout2), "second should be allowed after approval: {}", stdout2);
+    assert!(!output_contains_ask(&stdout2), "should not ask again: {}", stdout2);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TIER 2: Escalating — warn first, ask on second
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
@@ -149,37 +172,41 @@ fn tier2_first_occurrence_warns() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
-    // First: variable-then-execution — should warn but NOT terminate
+    // First: variable-then-execution — should warn but NOT ask/terminate
     let input = make_bash_input("tier2-warn", cwd, r#"CMD="ls -la"; $CMD"#);
     let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
 
-    // Should NOT contain CRITICAL (first occurrence = warning only)
     assert!(
-        !output_contains_critical(&stdout),
-        "first Tier 2 should not terminate: {}",
+        !output_contains_ask(&stdout),
+        "first Tier 2 should not ask: {}",
+        stdout
+    );
+    assert!(
+        !output_contains_deny(&stdout),
+        "first Tier 2 should not deny: {}",
         stdout
     );
 }
 
 #[test]
-fn tier2_second_occurrence_terminates() {
+fn tier2_second_occurrence_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
     // First occurrence — warning
-    let input1 = make_bash_input("tier2-kill", cwd, r#"CMD="ls -la"; $CMD"#);
+    let input1 = make_bash_input("tier2-ask", cwd, r#"CMD="ls -la"; $CMD"#);
     let (_, stdout1, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input1);
     assert!(
-        !output_contains_critical(&stdout1),
-        "first should not terminate"
+        !output_contains_ask(&stdout1),
+        "first should not ask"
     );
 
-    // Second occurrence — should terminate
-    let input2 = make_bash_input("tier2-kill", cwd, r#"X="echo hello"; $X"#);
+    // Second occurrence — should ask user
+    let input2 = make_bash_input("tier2-ask", cwd, r#"X="echo hello"; $X"#);
     let (_, stdout2, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input2);
     assert!(
-        output_contains_critical(&stdout2),
-        "second Tier 2 should terminate: {}",
+        output_contains_ask(&stdout2),
+        "second Tier 2 should ask user: {}",
         stdout2
     );
 }
@@ -189,7 +216,7 @@ fn tier2_second_occurrence_terminates() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn tier3_retry_after_block_terminates() {
+fn tier3_retry_after_block_asks_user() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
@@ -198,11 +225,10 @@ fn tier3_retry_after_block_terminates() {
     let (_, stdout1, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input1);
     assert!(output_contains_deny(&stdout1), "terraform destroy should be blocked");
 
-    // Step 2: Try again with same keywords — behavioral evasion detected
+    // Step 2: Try again with same keywords — behavioral evasion detected, asks user
     let input2 = make_bash_input("tier3-retry", cwd, "terraform apply -destroy");
     let (_, stdout2, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input2);
-    // Should be blocked (either by policy or behavioral detection)
-    assert!(output_contains_deny(&stdout2), "retry should be caught: {}", stdout2);
+    assert!(output_is_not_allowed(&stdout2), "retry should be caught: {}", stdout2);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -236,51 +262,32 @@ fn state_persists_across_invocations() {
 }
 
 #[test]
-fn terminated_session_blocks_all_subsequent() {
+fn session_approvals_persist_in_state() {
     let dir = create_test_dir();
     let cwd = dir.path().to_str().unwrap();
 
-    // Trigger Tier 1 termination
-    let input1 = make_bash_input("dead-session", cwd, "rev <<< 'test' | sh");
+    // Trigger a Tier 1 ask
+    let input1 = make_bash_input("approval-persist", cwd, "rev <<< 'test' | sh");
     let (_, stdout1, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input1);
-    assert!(output_contains_critical(&stdout1));
+    assert!(output_contains_ask(&stdout1));
 
-    // Subsequent safe command should still be blocked
-    let input2 = make_bash_input("dead-session", cwd, "echo hello");
-    let (_, stdout2, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input2);
+    // State should have pending_approval
+    let state_path = dir.path().join(".railguard/state/approval-persist.json");
+    let state1: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+    assert!(state1["pending_approval"].is_string());
+
+    // Next call resolves the pending approval
+    let input2 = make_bash_input("approval-persist", cwd, "echo safe");
+    simulate_hook(&railguard_binary(), "PreToolUse", &input2);
+
+    let state2: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+    assert!(state2["pending_approval"].is_null(), "pending should be resolved");
     assert!(
-        output_contains_deny(&stdout2),
-        "terminated session should block all commands: {}",
-        stdout2
+        state2["session_approvals"].as_array().unwrap().len() > 0,
+        "should have session approvals"
     );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// FORENSIC BREADCRUMBS
-// ═══════════════════════════════════════════════════════════════════
-
-#[test]
-fn termination_creates_trace_entry() {
-    let dir = create_test_dir();
-    let cwd = dir.path().to_str().unwrap();
-    let session_id = format!("forensic-test-{}", std::process::id());
-
-    let input = make_bash_input(&session_id, cwd, "rev <<< 'test' | sh");
-    simulate_hook(&railguard_binary(), "PreToolUse", &input);
-
-    let global_trace_dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".railguard/traces");
-    let trace_path = global_trace_dir.join(format!("{}.jsonl", session_id));
-    assert!(trace_path.exists(), "trace file should exist");
-
-    let content = std::fs::read_to_string(&trace_path).unwrap();
-    assert!(
-        content.contains("SessionTerminated"),
-        "trace should contain SessionTerminated event: {}",
-        content
-    );
-
-    // Clean up
-    let _ = std::fs::remove_file(&trace_path);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -305,7 +312,7 @@ fn normal_commands_unaffected_by_threat_system() {
         let input = make_bash_input("safe-test", cwd, cmd);
         let (_, stdout, _) = simulate_hook(&railguard_binary(), "PreToolUse", &input);
         assert!(
-            !output_contains_critical(&stdout),
+            !output_is_not_allowed(&stdout),
             "'{}' should not trigger threat detection: {}",
             cmd,
             stdout
